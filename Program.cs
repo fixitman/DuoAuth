@@ -9,9 +9,9 @@ internal class Program
     private static int Main(string[] args)
     {  
         IConfigurationRoot config = new ConfigurationBuilder()
-            .AddCommandLine(args)
             .SetBasePath(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)??AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json",false)
+            .AddCommandLine(args)
             .Build();        
         
         if(!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE"){
