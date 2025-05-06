@@ -1,5 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-using System.Reflection;
+﻿using System.Reflection;
 using Duo;
 using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
@@ -13,8 +12,7 @@ internal class Program
             .AddCommandLine(args)
             .SetBasePath(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)??AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json",false)
-            .Build();
-        
+            .Build();        
         
         if(!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE"){
             silentMode = true;   
@@ -35,7 +33,6 @@ internal class Program
         DuoApi api = new (config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
         
         Out($"Sending Authentication Request for {config["username"]}...");
-        
 
         var responseJson = api.ApiCall("POST", "/auth/v2/auth", new Dictionary<string, string>(){
             {"username",config["username"]!},
