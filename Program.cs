@@ -53,21 +53,25 @@ internal class Program
 
         var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
 
-        var responseObj = JsonConvert.DeserializeObject<dynamic>(responseJson);
-
-        if(responseObj?.response?.result == null){
-            Out($"Failed to authenticate user {config["username"]}");
-            return 3;
-        }else if(responseObj.response.result == "deny"){
-            Out($"Authentication Failed.");
-                return 4;
-        }else if(responseObj.response.result == "allow"){
-            Out("Access granted");
-                return 0;
+        if(responseJson.Contains("OK")){
+            var responseObj = JsonConvert.DeserializeObject<DuoResponse>(responseJson);
+            if(responseObj?.response?.result == "deny"){
+            Out($"Authentication Failed. {responseObj.response.status_msg}");
+                return 1;
+            }else if(responseObj?.response?.result == "allow"){
+                Out(responseObj.response.status_msg??"Success");
+                    return 0;
+            }else{
+                Out("Unrecognized response/result");
+                return 2;
+            }          
         }else{
-            Out("Unrecognized response/result");
-            return 5;
-        }          
+            var fail = JsonConvert.DeserializeObject<FailResponse>(responseJson);
+            Out($"Authentcation request failed: {fail?.message} - {fail?.message_detail}");
+            return 3;
+        }
+
+
     }
 
     private static void Out(string s){
