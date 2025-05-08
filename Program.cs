@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 internal class Program
 {
     private static bool silentMode = false;
+    private static string factor = "push";
     private static int Main(string[] args)
     {  
         IConfigurationRoot config = new ConfigurationBuilder()
@@ -19,7 +20,7 @@ internal class Program
         }
 
         if(String.IsNullOrEmpty(config["username"])){
-            Console.WriteLine("Usage: DuoAuth /username <username>");
+            Console.WriteLine("Usage: DuoAuth /username <username> [/passcode <passcode>] [/silent true|false]");
             return 1;
         }
 
@@ -30,15 +31,27 @@ internal class Program
                 return 2;
             }
 
+        
+        if(!String.IsNullOrEmpty(config["passcode"])){
+            factor = "passcode";
+        }
+
         DuoApi api = new (config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
         
         Out($"Sending Authentication Request for {config["username"]}...");
 
-        var responseJson = api.ApiCall("POST", "/auth/v2/auth", new Dictionary<string, string>(){
+        var parameters = new Dictionary<string, string>(){
             {"username",config["username"]!},
-            {"factor","auto"},
-            {"device","auto"}
-        });
+            {"factor",factor}
+        };
+
+        if(factor == "passcode"){
+            parameters.Add("passcode",config["passcode"]!);
+        }else{
+            parameters.Add("device","auto");
+        }
+
+        var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
 
         var responseObj = JsonConvert.DeserializeObject<dynamic>(responseJson);
 
@@ -46,7 +59,7 @@ internal class Program
             Out($"Failed to authenticate user {config["username"]}");
             return 3;
         }else if(responseObj.response.result == "deny"){
-            Out($"Access denied by {config["username"]}");
+            Out($"Authentication Failed.");
                 return 4;
         }else if(responseObj.response.result == "allow"){
             Out("Access granted");

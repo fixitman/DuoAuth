@@ -37,7 +37,7 @@ namespace Duo
         private string user_agent;
         private SleepService sleepService;
         private RandomService randomService;
-        private bool sslCertValidation = true;
+        private bool sslCertValidation = false;
         private X509CertificateCollection customRoots = null;
         
         // TLS 1.0/1.1 deprecation effective June 30, 2023
@@ -287,7 +287,8 @@ namespace Duo
             ServicePointManager.SecurityProtocol = SelectSecurityProtocolType;
             
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.ServerCertificateValidationCallback = GetCertificatePinner();
+            //request.ServerCertificateValidationCallback = GetCertificatePinner();
+            request.ServerCertificateValidationCallback = (httpRequestMessage, certificate, chain, sslPolicyErrors) => true;
             request.Method = method;
             request.Accept = "application/json";
             request.Headers.Add("Authorization", auth);
@@ -315,21 +316,21 @@ namespace Duo
             return request;
         }
 
-        private RemoteCertificateValidationCallback GetCertificatePinner()
-        {
-            if (!sslCertValidation)
-            {
-                // Pinner that effectively disables cert pinning by always returning true
-                return CertificatePinnerFactory.GetCertificateDisabler();
-            }
+        // private RemoteCertificateValidationCallback GetCertificatePinner()
+        // {
+        //     if (!sslCertValidation)
+        //     {
+        //         // Pinner that effectively disables cert pinning by always returning true
+        //         return CertificatePinnerFactory.GetCertificateDisabler();
+        //     }
 
-            if (customRoots != null)
-            {
-                return CertificatePinnerFactory.GetCustomRootCertificatesPinner(customRoots);
-            }
+        //     if (customRoots != null)
+        //     {
+        //         return CertificatePinnerFactory.GetCustomRootCertificatesPinner(customRoots);
+        //     }
 
-            return CertificatePinnerFactory.GetDuoCertificatePinner();
-        }
+        //     return CertificatePinnerFactory.GetDuoCertificatePinner();
+        // }
 
         private HttpWebResponse AttemptRetriableHttpRequest(
             String method, String url, String auth, String date, String cannonParams, int timeout)
