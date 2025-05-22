@@ -4,27 +4,28 @@ using Microsoft.Extensions.Configuration;
 using Serilog;
 using Newtonsoft.Json;
 using Microsoft.Data.Sqlite;
-using System.Runtime.CompilerServices;
-using System.Linq.Expressions;
 
 internal class Program
 {
     private static bool silentMode = false;
     private static string factor = "push";
     private static string ip = "";
+    private static string logline = "{user} {ip} {method} {result}";
+    private static string logerr = "{user} {ip} {error}";
+
     private static int Main(string[] args)
     {
         IConfigurationRoot config = new ConfigurationBuilder()
             .SetBasePath(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", false)            
+            .AddJsonFile("appsettings.json", false)
             .AddCommandLine(args)
             .Build();
 
-        var logfile = Path.Combine(AppContext.BaseDirectory, "log.txt");    
+        var logfile = Path.Combine(AppContext.BaseDirectory, "log.txt");
         Log.Logger = new LoggerConfiguration()
             .WriteTo.File(logfile, rollingInterval: RollingInterval.Day)
             .MinimumLevel.Debug()
-            .CreateLogger();        
+            .CreateLogger();
 
         if (!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE")
         {
@@ -39,6 +40,7 @@ internal class Program
         if (String.IsNullOrEmpty(config["username"]))
         {
             Console.WriteLine("Usage: DuoAuth /username <username> [/passcode <passcode>] [/silent true|false]");
+            Log.Error(logerr, "", ip, "missing Username");
             return 1;
         }
 
@@ -47,6 +49,7 @@ internal class Program
             String.IsNullOrEmpty(config["DUO_KEYS:HOST"]))
         {
             Console.WriteLine("Invalid configuration. Check appsettings.json");
+            Log.Error(logerr, config["username"], ip, "invalid configuration - check appsettings");
             return 2;
         }
 
@@ -54,8 +57,6 @@ internal class Program
         {
             factor = "passcode";
         }
-
-        Log.Information("checking database");
 
         //check for database
         try
@@ -77,6 +78,7 @@ internal class Program
                 if (span < TimeSpan.FromHours(int.Parse(config["RememberHours"]!)))
                 {
                     Out("Remembered device, no auth required");
+                    Log.Information(logline, config["username"], ip, factor, "Remembered");
                     return 0;
                 }
             }
@@ -84,14 +86,16 @@ internal class Program
         catch (SqliteException e)
         {
             Out($"Sql Exception reading - {e.Message}");
+            Log.Error(logerr, config["username"], ip, $"SQL Read error - {e.Message}");
             return 5;
         }
         catch (Exception e)
         {
             Out($"Exception - {e.Message}");
+            Log.Error(logerr, config["username"], ip, $"Error - {e.Message}");
             return 4;
         }
-        
+
         DuoApi api = new(config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
 
         Out($"Sending Authentication Request for {config["username"]}...");
@@ -110,6 +114,8 @@ internal class Program
             parameters.Add("device", "auto");
         }
 
+        Log.Debug("sending Auth request {user}, {ip}, {method}", config["username"], ip, factor);
+
         var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
 
         if (responseJson.Contains("OK"))
@@ -118,11 +124,15 @@ internal class Program
             if (responseObj?.response?.result == "deny")
             {
                 Out($"Authentication Failed. {responseObj.response.status_msg}");
+                Log.Information(logline, config["username"], ip, factor, "Denied");
                 return 1;
             }
             else if (responseObj?.response?.result == "allow")
             {
                 Out(responseObj.response.status_msg ?? "Success");
+
+                Log.Information(logline, config["username"], ip, factor, "Allowed");
+
                 // todo: update database with successful login
 
                 try
@@ -139,16 +149,16 @@ internal class Program
                 catch (Exception e)
                 {
                     Out($"Sql Exception writing - {e.Message}");
-                    Log.Error(e.Message);
-                    return 6;                    
+                    Log.Error(logerr, config["username"], ip, $"SQL write Error - {e.Message}");
+                    return 6;
                 }
-
-                Log.Information("success");
+                
                 return 0;
             }
             else
             {
                 Out("Unrecognized response/result");
+                Log.Error(logerr, config["username"], ip, $"unrecognized response/result - {responseObj?.response?.result}");
                 return 2;
             }
         }
@@ -156,6 +166,7 @@ internal class Program
         {
             var fail = JsonConvert.DeserializeObject<FailResponse>(responseJson);
             Out($"Authentcation request failed: {fail?.message} - {fail?.message_detail}");
+            Log.Error(logerr, config["username"], ip, $"Auth request failed - {fail?.message} - {fail?.message_detail}");
             return 3;
         }
     }
