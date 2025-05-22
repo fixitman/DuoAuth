@@ -19,12 +19,12 @@ internal class Program
             .AddJsonFile("appsettings.json", false)            
             .AddCommandLine(args)
             .Build();
+
         var logfile = Path.Combine(AppContext.BaseDirectory, "log.txt");    
         Log.Logger = new LoggerConfiguration()
             .WriteTo.File(logfile, rollingInterval: RollingInterval.Day)
             .MinimumLevel.Debug()
-            .CreateLogger();
-        
+            .CreateLogger();        
 
         if (!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE")
         {
@@ -35,8 +35,6 @@ internal class Program
         {
             ip = config["ip"]!;
         }
-
-
 
         if (String.IsNullOrEmpty(config["username"]))
         {
@@ -51,7 +49,6 @@ internal class Program
             Console.WriteLine("Invalid configuration. Check appsettings.json");
             return 2;
         }
-
 
         if (!String.IsNullOrEmpty(config["passcode"]))
         {
@@ -77,15 +74,12 @@ internal class Program
                 var t = reader.GetString(0);
                 var stamp = DateTime.Parse(t);
                 var span = DateTime.UtcNow - stamp;
-                Log.Information("span = {span}", span);
                 if (span < TimeSpan.FromHours(int.Parse(config["RememberHours"]!)))
                 {
                     Out("Remembered device, no auth required");
                     return 0;
                 }
             }
-
-
         }
         catch (SqliteException e)
         {
@@ -98,8 +92,6 @@ internal class Program
             return 4;
         }
         
-
-
         DuoApi api = new(config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
 
         Out($"Sending Authentication Request for {config["username"]}...");
@@ -143,16 +135,12 @@ internal class Program
                     command.CommandText = $"insert into logins values ('{config["username"]}','{ip}',datetime()) on conflict do update set timestamp = datetime();";
 
                     var r = command.ExecuteNonQuery();
-
-
-
                 }
                 catch (Exception e)
                 {
-                    //Out($"Sql Exception writing - {e.Message}");
-                    //return 6;
+                    Out($"Sql Exception writing - {e.Message}");
                     Log.Error(e.Message);
-                    return 6;
+                    return 6;                    
                 }
 
                 Log.Information("success");
@@ -170,8 +158,6 @@ internal class Program
             Out($"Authentcation request failed: {fail?.message} - {fail?.message_detail}");
             return 3;
         }
-
-
     }
 
     private static void Out(string s){
