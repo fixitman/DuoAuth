@@ -2,6 +2,7 @@
 using Duo;
 using Microsoft.Extensions.Configuration;
 using Serilog;
+using Serilog.Settings.Configuration;
 using Newtonsoft.Json;
 using Microsoft.Data.Sqlite;
 
@@ -21,10 +22,8 @@ internal class Program
             .AddCommandLine(args)
             .Build();
 
-        var logfile = Path.Combine(AppContext.BaseDirectory, "log.txt");
         Log.Logger = new LoggerConfiguration()
-            .WriteTo.File(logfile, rollingInterval: RollingInterval.Day)
-            .MinimumLevel.Debug()
+            .ReadFrom.Configuration(config)
             .CreateLogger();
 
         if (!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE")
