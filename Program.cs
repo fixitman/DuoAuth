@@ -26,38 +26,95 @@ internal class Program
             .ReadFrom.Configuration(config)
             .CreateLogger();
 
-        if (!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE")
+        (bool success, int err) = CheckConfig(config);
+        if (!success)
         {
-            silentMode = true;
+            return err;
         }
 
-        if (!String.IsNullOrEmpty(config["ip"]))
+        //check for remembered login
+        ( success, err) = CheckRemembered(config);
+        if (!success)
         {
-            ip = config["ip"]!;
+            return err;
         }
 
-        if (String.IsNullOrEmpty(config["username"]))
+        
+        DuoApi api = new(config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
+
+
+        var parameters = new Dictionary<string, string>(){
+            {"username",config["username"]!},
+            {"factor",factor}
+        };
+
+        if (factor == "passcode")
         {
-            Console.WriteLine("Usage: DuoAuth /username <username> [/passcode <passcode>] [/silent true|false]");
-            Log.Error(logerr, "", ip, "missing Username");
-            return 1;
+            parameters.Add("passcode", config["passcode"]!);
+        }
+        else
+        {
+            parameters.Add("device", "auto");
         }
 
-        if (String.IsNullOrEmpty(config["DUO_KEYS:IKEY"]) ||
-            String.IsNullOrEmpty(config["DUO_KEYS:SKEY"]) ||
-            String.IsNullOrEmpty(config["DUO_KEYS:HOST"]))
-        {
-            Console.WriteLine("Invalid configuration. Check appsettings.json");
-            Log.Error(logerr, config["username"], ip, "invalid configuration - check appsettings");
-            return 2;
-        }
+        Log.Debug("sending Auth request {user}, {ip}, {method}", config["username"], ip, factor);
+        Out($"Sending Authentication Request for {config["username"]}...");
 
-        if (!String.IsNullOrEmpty(config["passcode"]))
-        {
-            factor = "passcode";
-        }
+        var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
 
-        //check for database
+        if (responseJson.Contains("OK"))
+        {
+            var responseObj = JsonConvert.DeserializeObject<DuoResponse>(responseJson);
+            if (responseObj?.response?.result == "deny")
+            {
+                Out($"Authentication Failed. {responseObj.response.status_msg}");
+                Log.Information(logline, config["username"], ip, factor, "Denied");
+                return 1;
+            }
+            else if (responseObj?.response?.result == "allow")
+            {
+                Out(responseObj.response.status_msg ?? "Success");
+
+                Log.Information(logline, config["username"], ip, factor, "Allowed");
+
+                try
+                {
+                    var path = Path.Combine(AppContext.BaseDirectory, "data.db");
+                    using var connection = new SqliteConnection($"Data Source = {path}");
+                    connection.Open();
+
+                    using var command = connection.CreateCommand();
+                    command.CommandText = $"insert into logins values ('{config["username"]}','{ip}',datetime()) on conflict do update set timestamp = datetime();";
+
+                    var r = command.ExecuteNonQuery();
+                }
+                catch (Exception e)
+                {
+                    Out($"Sql Exception writing - {e.Message}");
+                    Log.Error(logerr, config["username"], ip, $"SQL write Error - {e.Message}");
+                    return 6;
+                }
+
+                return 0;
+            }
+            else
+            {
+                Out("Unrecognized response/result");
+                Log.Error(logerr, config["username"], ip, $"unrecognized response/result - {responseObj?.response?.result}");
+                return 2;
+            }
+        }
+        else
+        {
+            var fail = JsonConvert.DeserializeObject<FailResponse>(responseJson);
+            Out($"Authentcation request failed: {fail?.message} - {fail?.message_detail}");
+            Log.Error(logerr, config["username"], ip, $"Auth request failed - {fail?.message} - {fail?.message_detail}");
+            return 3;
+        }
+    }
+
+    private static (bool flowControl, int value) CheckRemembered(IConfigurationRoot config)
+    {
         try
         {
             var path = Path.Combine(AppContext.BaseDirectory, "data.db");
@@ -78,7 +135,7 @@ internal class Program
                 {
                     Out("Remembered device, no auth required");
                     Log.Information(logline, config["username"], ip, factor, "Remembered");
-                    return 0;
+                    return (flowControl: false, value: 0);
                 }
             }
         }
@@ -86,88 +143,52 @@ internal class Program
         {
             Out($"Sql Exception reading - {e.Message}");
             Log.Error(logerr, config["username"], ip, $"SQL Read error - {e.Message}");
-            return 5;
+            return (flowControl: false, value: 5);
         }
         catch (Exception e)
         {
             Out($"Exception - {e.Message}");
             Log.Error(logerr, config["username"], ip, $"Error - {e.Message}");
-            return 4;
+            return (flowControl: false, value: 4);
         }
 
-        DuoApi api = new(config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
+        return (flowControl: true, value: default);
+    }
 
-        Out($"Sending Authentication Request for {config["username"]}...");
-
-        var parameters = new Dictionary<string, string>(){
-            {"username",config["username"]!},
-            {"factor",factor}
-        };
-
-        if (factor == "passcode")
+    private static (bool flowControl, int value) CheckConfig(IConfigurationRoot config)
+    {
+        if (!String.IsNullOrEmpty(config["silent"]) && config["silent"]!.ToUpper() == "TRUE")
         {
-            parameters.Add("passcode", config["passcode"]!);
+            silentMode = true;
         }
-        else
+
+        if (!String.IsNullOrEmpty(config["ip"]))
         {
-            parameters.Add("device", "auto");
+            ip = config["ip"]!;
         }
 
-        Log.Debug("sending Auth request {user}, {ip}, {method}", config["username"], ip, factor);
-
-        var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
-
-        if (responseJson.Contains("OK"))
+        if (String.IsNullOrEmpty(config["username"]))
         {
-            var responseObj = JsonConvert.DeserializeObject<DuoResponse>(responseJson);
-            if (responseObj?.response?.result == "deny")
-            {
-                Out($"Authentication Failed. {responseObj.response.status_msg}");
-                Log.Information(logline, config["username"], ip, factor, "Denied");
-                return 1;
-            }
-            else if (responseObj?.response?.result == "allow")
-            {
-                Out(responseObj.response.status_msg ?? "Success");
-
-                Log.Information(logline, config["username"], ip, factor, "Allowed");
-
-                // todo: update database with successful login
-
-                try
-                {
-                    var path = Path.Combine(AppContext.BaseDirectory, "data.db");
-                    using var connection = new SqliteConnection($"Data Source = {path}");
-                    connection.Open();
-
-                    using var command = connection.CreateCommand();
-                    command.CommandText = $"insert into logins values ('{config["username"]}','{ip}',datetime()) on conflict do update set timestamp = datetime();";
-
-                    var r = command.ExecuteNonQuery();
-                }
-                catch (Exception e)
-                {
-                    Out($"Sql Exception writing - {e.Message}");
-                    Log.Error(logerr, config["username"], ip, $"SQL write Error - {e.Message}");
-                    return 6;
-                }
-                
-                return 0;
-            }
-            else
-            {
-                Out("Unrecognized response/result");
-                Log.Error(logerr, config["username"], ip, $"unrecognized response/result - {responseObj?.response?.result}");
-                return 2;
-            }
+            Console.WriteLine("Usage: DuoAuth /username <username> [/passcode <passcode>] [/silent true|false]");
+            Log.Error(logerr, "", ip, "missing Username");
+            return (flowControl: false, value: 1);
         }
-        else
+
+        if (String.IsNullOrEmpty(config["DUO_KEYS:IKEY"]) ||
+            String.IsNullOrEmpty(config["DUO_KEYS:SKEY"]) ||
+            String.IsNullOrEmpty(config["DUO_KEYS:HOST"]))
         {
-            var fail = JsonConvert.DeserializeObject<FailResponse>(responseJson);
-            Out($"Authentcation request failed: {fail?.message} - {fail?.message_detail}");
-            Log.Error(logerr, config["username"], ip, $"Auth request failed - {fail?.message} - {fail?.message_detail}");
-            return 3;
+            Console.WriteLine("Invalid configuration. Check appsettings.json");
+            Log.Error(logerr, config["username"], ip, "invalid configuration - check appsettings");
+            return (flowControl: false, value: 2);
         }
+
+        if (!String.IsNullOrEmpty(config["passcode"]))
+        {
+            factor = "passcode";
+        }
+
+        return (flowControl: true, value: default);
     }
 
     private static void Out(string s){
