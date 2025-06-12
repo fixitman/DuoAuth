@@ -2,7 +2,6 @@
 using Duo;
 using Microsoft.Extensions.Configuration;
 using Serilog;
-using Serilog.Settings.Configuration;
 using Newtonsoft.Json;
 using Microsoft.Data.Sqlite;
 
@@ -33,21 +32,21 @@ internal class Program
         }
 
         //check for remembered login
-        ( success, err) = CheckRemembered(config);
+        //if remembered, success = false, err = 0
+        (success, err) = CheckRemembered(config);
         if (!success)
         {
             return err;
         }
-
         
+        //create api object
         DuoApi api = new(config["DUO_KEYS:IKEY"]!, config["DUO_KEYS:SKEY"]!, config["DUO_KEYS:HOST"]!);
 
-
+        //create parameter dictionary to pass to api call    
         var parameters = new Dictionary<string, string>(){
             {"username",config["username"]!},
             {"factor",factor}
         };
-
         if (factor == "passcode")
         {
             parameters.Add("passcode", config["passcode"]!);
@@ -57,11 +56,13 @@ internal class Program
             parameters.Add("device", "auto");
         }
 
+        //make tha api call
         Log.Debug("sending Auth request {user}, {ip}, {method}", config["username"], ip, factor);
         Out($"Sending Authentication Request for {config["username"]}...");
 
         var responseJson = api.ApiCall("POST", "/auth/v2/auth", parameters);
 
+        //parse the response
         if (responseJson.Contains("OK"))
         {
             var responseObj = JsonConvert.DeserializeObject<DuoResponse>(responseJson);
